@@ -13,7 +13,7 @@ def get_clippings():
 def main():
     st.title("Kindle Highlights Manager")
     clippings = get_clippings()
-    books = []
+    # books = []
     if clippings:
         clippings = clippings.read()
 
