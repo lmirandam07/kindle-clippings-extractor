@@ -2,27 +2,24 @@ import streamlit as st
 from io import StringIO
 
 
-def get_clippings():
-    file = st.file_uploader("Upload Clippings File", type="txt")
+def clean_text(text):
+    highlights = [l.splitlines() for l in text]
 
-    if file:
-        stringio = StringIO(file.getvalue().decode("utf-8"))
-        return stringio
+    return [list(filter(None, h)) for h in highlights]
 
 
 def main():
     st.title("Kindle Highlights Manager")
-    clippings = get_clippings()
-    # books = []
-    if clippings:
-        clippings = clippings.read()
+    file = st.file_uploader("Upload Clippings File", type="txt")
+    if file is not None:
+        raw_text = str(file.read(), "utf-8")
+        st.text(raw_text)
 
-        for i in range(0, len(clippings.read), 3):
-            st.header(clippings[i])
-            st.header(clippings[i + 1])
-            st.subheader(clippings[i + 2])
+        raw_text = raw_text.split("==========")
 
-        st.sidebar.selectbox("Books", ("The Power of Habit", "Dune"))
+        highlights = clean_text(raw_text)
+
+        print(highlights)
 
 
 if __name__ == "__main__":
