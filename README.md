@@ -1,2 +1,2 @@
 # kindle-highlights-manager
-Streamlit app for managing kindle highlights
+Streamlit app for getting insights of kindle highlights
