@@ -1,7 +1,7 @@
 import re
 import streamlit as st
 from datetime import datetime
-from pprint import pprint
+from collections import defaultdict
 
 # Clean raw text by removing lines, tabs and other unnecessary whitespaces
 def clean_data(text):
@@ -38,18 +38,19 @@ def clean_authors(authors):
 
 
 def get_highlights(text):
-    book_dict = {"name": "", "authors": [], "highlights": {}}
-    highlight_dict = {"text:": "", "location": "", "added_timestamp": ""}
+    book_dict = defaultdict()
     highlights = []
 
     data = clean_data(text)
-    pprint(data[:5])
 
-    for i, d in enumerate(data):
+    for d in data:
+        highlight_dict = defaultdict()
+        n_high = len(highlights)
+
         # Regex for getting book name and book authors from first position in text
         pattern = re.search(r"^(.+) \((.+|.+;.+)\)$", d[0])
-        book_name = pattern.group(1)
-        book_authors = clean_authors(pattern.group(2))
+        book_dict["name"] = pattern.group(1)
+        book_dict["authors"] = clean_authors(pattern.group(2))
 
         # Regex for getting highlight location, and timestamp from second position in text
         pattern = re.search(
@@ -57,32 +58,33 @@ def get_highlights(text):
             d[1],
         )
 
-        high_location = pattern.group(1)
+        highlight_dict["text"] = d[2]
+        highlight_dict["location"] = pattern.group(1)
+        timestamp_str = pattern.group(2)
+        highlight_dict["added_timestamp"] = datetime.strptime(
+            timestamp_str, "%B %d, %Y %I:%M:%S %p"
+        )
 
-        # TODO turn timestamp string to datetime: https://thispointer.com/python-how-to-convert-a-timestamp-string-to-a-datetime-object-using-datetime-strptime/
-        high_timestamp = pattern.group(2)
-        high_text = d[2]
+        book_diff_prev_book = (
+            True
+            if len(highlights) == 0
+            else book_dict["name"] != highlights[n_high - 1]["name"]
+        )
+        # If it's the first book or the book is different from the previous one
+        if n_high == 0 or book_diff_prev_book:
+            book_dict["highlights"] = []
 
-        if book_dict["name"] == "":
-            book_dict["name"] = book_name
-            book_dict["authors"].append(book_authors)
+        book_dict["highlights"].append(highlight_dict.copy())
 
-        if book_dict["name"] == book_name:
-            # TODO Save highlight in book_dict
-            pass
-        else:
+        if book_diff_prev_book:
             highlights.append(book_dict.copy())
-            book_dict["name"] = book_name
-            book_dict["authors"] = []
-            book_dict["authors"].append(book_authors)
-            # TODO Save highlight in book_dict
-
-        if i == len(data) - 1:
-            highlights.append(book_dict)
-
-    st.json(highlights)
 
     return highlights
+
+
+def construct_sidebar(books, authors):
+    with st.sidebar:
+        st.selectbox("Books", books)
 
 
 def main():
@@ -91,10 +93,12 @@ def main():
     file = st.file_uploader("Upload Clippings File", type="txt")
     if file is not None:
         raw_text = str(file.read(), "utf-8").replace("\ufeff", "")
-
         highlights = get_highlights(raw_text)
 
-        # pprint(highlights)
+        books_names = [h["name"] for h in highlights]
+        books_authors = [h["authors"] for h in highlights]
+
+        construct_sidebar(books_names, books_authors)
 
 
 if __name__ == "__main__":
