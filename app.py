@@ -1,105 +1,123 @@
 import re
+import base64
+from pprint import pprint
+import pandas as pd
 import streamlit as st
-from datetime import datetime
-from collections import defaultdict
+from collections import namedtuple
 
-# Clean raw text by removing lines, tabs and other unnecessary whitespaces
-def clean_data(text):
-    # Remove "=" that separates the highlights
-    clean_text = [t.splitlines() for t in re.split(r"={10}", text)]
-
-    # Remove empty elements in list and sort by books name
-    clean_text = list(filter(None, [list(filter(None, t)) for t in clean_text]))
-
-    # Remove incomplete highlights
-    clean_text = [x for x in clean_text if len(x) == 3]
-    # Sort by book name
-    clean_text.sort()
-
-    return clean_text
+# Define the pattern for each element we want to extract
+book_pattern = re.compile(r"^(.*?)\((.*?)\)$")
+highlight_pattern = re.compile(
+    r"- Your Highlight on(?: page ([\dxvi]+))?(?: \|)? Location (\d+(?:-\d+)?) \| Added on (.*?)$"
+)
 
 
-def clean_authors(authors):
-    clean_authors = []
+# Define a namedtuple to hold the information for a single clipping
+Clipping = namedtuple(
+    "Clipping", ["title", "author", "page", "location", "added_on", "highlight"]
+)
 
-    # Check if there is more than one author
-    authors_list = authors.split(";") if ";" in authors else [authors]
-    for author in authors_list:
 
-        # Swap names and last names to put names first
-        if re.match(r"[a-zA-Z]+, [a-zA-Z]", author):
-            author = author.split(",")
-            clean_authors.append(f"{author[1].strip()} {author[0]}")
+def parse_book_info(line):
+    """Parse the book title and author from a line."""
+    match = book_pattern.match(line)
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
 
+
+def parse_highlight_info(line):
+    """Parse the page, location, and date from a line."""
+    match = highlight_pattern.match(line)
+    print(line)
+    if match:
+        page = match.group(1)
+        page = roman_to_int(page) if isinstance(page, str) and page.isalpha() else page
+        page = int(page) if page else None
+        return page, match.group(2), pd.to_datetime(match.group(3))
+
+
+def parse_clipping(file):
+    """Read and parse a single clipping from the file."""
+    try:
+        book_info = parse_book_info(next(file))
+        highlight_info = parse_highlight_info(next(file))
+        # Skip potential blank lines
+        while True:
+            line = next(file).strip()
+            if line:
+                highlight_text = line
+                break
+        # Skip lines until the next "==========" line
+        while True:
+            line = next(file)
+            if line.strip() == "==========":
+                break
+        if book_info and highlight_info:
+            return Clipping(*book_info, *highlight_info, highlight_text)
+    except StopIteration:
+        # If we've reached the end of the file, return None
+        return None
+
+
+def roman_to_int(s):
+    """Converts a Roman numeral string to an integer."""
+    roman_numerals = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+    s = s.upper()
+    total = 0
+    while s:
+        if len(s) == 1 or roman_numerals[s[0]] >= roman_numerals[s[1]]:
+            total += roman_numerals[s[0]]
+            s = s[1:]
         else:
-            clean_authors.append(author)
-
-    return clean_authors
-
-
-def get_highlights(text):
-    book_dict = defaultdict()
-    highlights = []
-
-    data = clean_data(text)
-
-    for d in data:
-        highlight_dict = defaultdict()
-        n_high = len(highlights)
-
-        # Regex for getting book name and book authors from first position in text
-        pattern = re.search(r"^(.+) \((.+|.+;.+)\)$", d[0])
-        book_dict["name"] = pattern.group(1)
-        book_dict["authors"] = clean_authors(pattern.group(2))
-
-        # Regex for getting highlight location, and timestamp from second position in text
-        pattern = re.search(
-            r"^.+ ([0-9]+-[0-9]+) \| .+ ([a-zA-Z]+ [0-9]{0,2}, [0-9]{4} [0-9]{0,2}:[0-9]{0,2}:[0-9]{0,2} (PM|AM))$",
-            d[1],
-        )
-
-        highlight_dict["text"] = d[2]
-        highlight_dict["location"] = pattern.group(1)
-        timestamp_str = pattern.group(2)
-        highlight_dict["added_timestamp"] = datetime.strptime(
-            timestamp_str, "%B %d, %Y %I:%M:%S %p"
-        )
-
-        book_diff_prev_book = (
-            True
-            if len(highlights) == 0
-            else book_dict["name"] != highlights[n_high - 1]["name"]
-        )
-        # If it's the first book or the book is different from the previous one
-        if n_high == 0 or book_diff_prev_book:
-            book_dict["highlights"] = []
-
-        book_dict["highlights"].append(highlight_dict.copy())
-
-        if book_diff_prev_book:
-            highlights.append(book_dict.copy())
-
-    return highlights
+            total += roman_numerals[s[1]] - roman_numerals[s[0]]
+            s = s[2:]
+    return total
 
 
-def construct_sidebar(books, authors):
-    with st.sidebar:
-        st.selectbox("Books", books)
+def create_download_link_csv(df, filename="data.csv"):
+    """Generates a link allowing the data in a given panda dataframe to be downloaded as csv"""
+    csv = df.to_csv(index=False)
+    b64 = base64.b64encode(csv.encode())
+    return f'<a href="data:file/csv;base64,{b64.decode()}" download="{filename}">Download csv file</a>'
 
 
 def main():
+    # Initialize a list to store the Clipping objects
+    clippings = []
 
-    st.title("Kindle Highlights Manager")
-    file = st.file_uploader("Upload Clippings File", type="txt")
-    if file is not None:
-        raw_text = str(file.read(), "utf-8").replace("\ufeff", "")
-        highlights = get_highlights(raw_text)
+    st.title("Kindle Clippings Extractor")
 
-        books_names = [h["name"] for h in highlights]
-        books_authors = [h["authors"] for h in highlights]
+    uploaded_file = st.file_uploader("Upload your MyClippings.txt file", type=["txt"])
+    if uploaded_file is not None:
+        file = (
+            str(uploaded_file.read(), "utf-8")
+            .replace("\ufeff", "")
+            .replace("\r", "")
+            .split("\n")
+        )
+        file_iter = iter(file)
+        while True:
+            clipping = parse_clipping(file_iter)
+            if clipping is None:
+                break
+            clippings.append(clipping)
 
-        construct_sidebar(books_names, books_authors)
+    # Create a DataFrame from the list of Clipping objects
+    df = pd.DataFrame(clippings)
+
+    if df.empty:
+        st.write("No data to display.")
+    else:
+        st.dataframe(df)
+
+    if st.button("Download DataFrame as CSV"):
+        if df.empty:
+            st.write("No data to download.")
+        else:
+            st.markdown(create_download_link_csv(df), unsafe_allow_html=True)
+
+    return df
 
 
 if __name__ == "__main__":
-    main()
+    df = main()
