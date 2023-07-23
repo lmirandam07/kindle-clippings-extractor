@@ -121,18 +121,20 @@ def main():
     st.title("Kindle Clippings Extractor")
 
     uploaded_file = st.file_uploader("Upload your MyClippings.txt file", type=["txt"])
-    kc = KindleClippings()
-    df = kc.extract_clippings(uploaded_file)
 
-    if df.empty:
-        st.write("No data to display.")
-    else:
-        st.dataframe(df)
+    if uploaded_file:
+        kc = KindleClippings()
+        df = kc.extract_clippings(uploaded_file)
 
-    if df.empty:
-        st.write("No data to download.")
-    else:
-        st.markdown(kc.create_download_link_CSV(df), unsafe_allow_html=True)
+        if df.empty:
+            st.write("No data to display.")
+        else:
+            st.dataframe(df)
+
+        if df.empty:
+            st.write("No data to download.")
+        else:
+            st.markdown(kc.create_download_link_CSV(df), unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
